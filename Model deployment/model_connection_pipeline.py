@@ -11,6 +11,8 @@ import os
 import time
 import torch
 import numpy as np
+import threading
+import queue
 from distutils.command.config import config
 from brainflow.board_shim import BoardShim, BrainFlowInputParams
 from new_model import EEGPredictor
@@ -46,6 +48,8 @@ model.eval()
 eeg_predictor = EEGPredictor()
 eeg_predictor.set_model(model)
 
+data_queue = queue.Queue()
+
 def save_file(key_data, file_name):
      file_path = os.path.join("/home/julius/Documents/GitHub/research/EEG_controller_data_record/test_data_draft",file_name)
      directory = os.path.dirname(file_path)
@@ -55,48 +59,80 @@ def save_file(key_data, file_name):
      with open(file_path, "wb") as f:
          np.save(f, key_data, allow_pickle=False, fix_imports=False)
 
-#data_queue = queue.Queue()
+def collectKey(q):
+   while True: 
+      key = np.array(board.get_board_data())
+      key = key[1:17,:]
+      data_queue.put(key)
+      time.sleep(1/128)
 
 
-def getKey():
-     for val in board.get_board_data():
-         #data_file_num = str(file_num) + ".npy"
-         time.sleep(3)
-         key = np.array(board.get_board_data())
-         key = key[1:17, :]
-         if key.shape[1] != 384:
-            diff = 384 - key.shape[1]
-            new_arr = np.repeat(key[:, -1:], diff, axis=1)
-            key = np.concatenate((key, new_arr), axis=1)  
-            
-         prediction = eeg_predictor.predict(key)
-         print('prediction:', prediction)
-       #prediction values : 'w' : Forward, 's' : Backward, 'a' : Left, 'd' : Right, 'z' : Stop
-         if prediction == 0:
-            return 'w'
-         elif prediction == 1:
-            return 's'
-         elif prediction == 2: 
-            return 'a'
-         elif prediction == 3: 
-            return 'd'
-         elif prediction == 4: 
-            return 'z'
-                
-stdscr = curses.initscr()
-curses.cbreak()
+def getKey(q):
+   while True:
+      if q.get().shape[1] >= 384:
+         data = [q.get() for _ in range(384)]
+         predict_key(data)
+   time.sleep(1)
 
-try:
-    while True:
-        key = getKey()
-        if key is not None:
+
+
+
+def predict_key(key): 
+   prediction = eeg_predictor.predict(key)
+   #print('prediction:', prediction)
+   if prediction  == 0: 
+      return 'w'
+   elif prediction == 1:
+      return 's'
+   elif prediction == 2: 
+      return 'a'
+   elif prediction == 3: 
+      return 'd'
+   elif prediction == 4: 
+      return 'z'    
+
+
+
+try:             
+   stdscr = curses.initscr()
+   curses.cbreak()
+
+   def send_data():
+      #save_directory = "/home/julius/Documents/GitHub/research/EEG_controller_data_record/test_data_draft"
+      #file_num = 9
+      while True: 
+         key = data_queue.get()
+         print(key.size())
+         prediction = predict_key(key)
+         if key is not None: 
             if key == 'q':
-                print("exit!")
-                break
-            print(key)
-            msg = key.encode('ascii')
+               print('exit') 
+               break
+         #print('fafafafa:',key)
+            #print(key.shape)
+            #save_path = os.path.join(save_directory, str(file_num) + ".npy")
+            #np.save(save_path, key, allow_pickle = False, fix_imports = False)
+            print(prediction)
+            msg = str(prediction).encode('ascii')
             len_send = os.write(wf, msg)
+         #elapsed_time = time.time() - start_time
+         #delay = max(0,3 - elapsed_time)
+         #time.sleep(delay)
+ 
+#queue = queue.Queue()
+   collect_key_thread = threading.Thread(target = collectKey, args=([data_queue]))
+   key_thread = threading.Thread(target = getKey, args = (data_queue,))
 
+#send_thread = threading.Thread(target = send_data, args = (queue,))
+ 
+   collect_key_thread.start()
+   key_thread.start()
+
+   #collect_key_thread.join()
+   #key_thread.join()
+
+   send_data()
+     
 finally:
     curses.echo()
     curses.nocbreak()
