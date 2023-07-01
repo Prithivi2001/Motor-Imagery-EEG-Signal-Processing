@@ -1,2 +1,2 @@
 # EEG-Signal-Capture-Program-GUI
-A GUI program used for hosts to interact with visual stimuli to capture their emotion through an EEG headset
+Python scripts and thesis report that cover the representation of motor imagery through EEG signals and transmitted using a 4WD Robot Car.
